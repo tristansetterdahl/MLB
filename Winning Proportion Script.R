@@ -27,6 +27,9 @@ make_abbs_ls <- function(){
   al_central_abbs <- c('CHW', 'CLE', 'DET', 'KC', 'MIN')
   al_east_abbs <- c('BAL', 'BOS', 'NYY', 'TB', 'TOR')
   
+  nl_abbs <- c(nl_west_abbs, nl_central_abbs, nl_east_abbs)
+  al_abbs <- c(al_west_abbs, al_central_abbs, al_east_abbs)
+  
   all_abbs <- c(nl_west_abbs, nl_central_abbs, nl_east_abbs, al_west_abbs, al_central_abbs, al_east_abbs)
   return(all_abbs)
 }
@@ -125,6 +128,12 @@ score_clean <- function(sched){
   good_sched %<>% rename(TEAMSCORE = WINNINGSCORE) ### RENAMING ###
   good_sched %<>% rename(OPPSCORE = LOSINGSCORE)   ###   COLUMNS ####
   
+  #making wins and loss columns separate and adding pct column
+  good_sched %<>% separate(`W-L`, c('WINS', 'LOSSES'), sep = '-') #separates win/losses into their own columns
+  good_sched$WINS %<>% as.integer
+  good_sched$LOSSES %<>% as.integer
+  good_sched %<>% mutate(PCT = WINS / (WINS + LOSSES), .before = 'WIN')
+  
   good_sched$TEAMSCORE %<>% as.integer()
   good_sched$OPPSCORE %<>% as.integer()
   good_sched$ATT %<>% gsub(',', '', .) %<>% as.integer()
@@ -138,7 +147,7 @@ score_clean <- function(sched){
 
 
 get_clean_schedules <- function(schedule_ls){
-  played_games <- lapply(all_schedules, drop_future_games)
+  played_games <- lapply(schedule_ls, drop_future_games)
   with_where <- lapply(played_games, who_where)
   clean <- lapply(with_where, score_clean)
   return(clean)
@@ -165,6 +174,8 @@ loc_wins <- function(sched){
   
 }
 #loc_wins(exp_ls$CHC) #WORKS
+
+
 
 plottable_data <- function(){
   all_teams <- make_teams_ls()
@@ -262,6 +273,57 @@ ggplot(dat[dat$Team %in% team_abbrs,], aes(y = W, x = Team)) + geom_col(aes(colo
   scale_color_mlb(type = "secondary") +
   scale_fill_mlb(alpha = 0.4) +
   theme_minimal() + theme(axis.title.x = element_mlb_logo())
+
+
+record_data <- function(){
+  all_teams <- make_teams_ls()
+  all_abbs <- make_abbs_ls()
+  ###list of every schedule. named with team name
+  all_schedules <- lapply(all_teams, get_schedule)
+  names(all_schedules) <- all_abbs
+  
+  ##list with clean schedules for every team
+  clean_schedules <- get_clean_schedules(all_schedules) ###WORKS
+  
+  all_records <- lapply(clean_schedules, record_select)
+  all_records_every_game <- data.table::rbindlist(all_records)
+  
+  
+  return <- all_records_every_game
+}
+
+record_data()
+
+
+records_vec <- lapply(clean_schedules, record_select)
+
+record_select <- function(sched){
+  records <- sched %>% select(c('TEAM', 'DATE', 'PCT'))
+  records$DATE %<>% as.Date("%a, %b %d")
+  return(records)
+}
+
+standings_race <- function(teams, window){
+  long_records <- record_data() #returns long data with a record for each team following every game
+  relevant_teams <- long_records[long_records$TEAM %in% teams,]
+  relevant_teams <- relevant_teams[relevant_teams$DATE %within% window,]
+  #last_games_in_window <- relevant_teams %>% group_by(month = month(DATE), TEAM) %>% summarise(end_of_window = max(DATE))
+  #logo_games <- inner_join(relevant_teams, last_games_in_window, by = c('TEAM', 'DATE' = 'end_of_window'))
+  #logo_games <- relevant_teams %>% group_by(TEAM) %>% slice_sample(n = 6)
+  div_title <- paste0((substitute(teams) %>% deparse %>% toString() %>% str_split('_') %>% unlist())[1] %>% toupper(), ' ',
+                      (substitute(teams) %>% deparse %>% toString() %>% str_split('_') %>% unlist())[2] %>% str_to_title()
+  )
+  updated_since <- paste0(((today() - 1) %>% month(label = TRUE, abbr = FALSE)) %>% as.character(), ' ', ((today() -1) %>% day()) %>% as.character)
+  
+  ggplot(relevant_teams, aes(x = DATE, y = PCT)) + geom_line(aes(group = TEAM, color = TEAM)) + scale_color_mlb(type = 'primary') + 
+    geom_mlb_logos(dat = relevant_teams, mapping = aes(team_abbr = TEAM, width = .0175)) + theme_minimal() + theme(plot.title = element_text(face = 'bold')) +
+    labs(y = 'Winning Percentage', x = 'Date', title = paste0('MLB', ' Standings') , subtitle = paste0('Since All-Star Break')) + 
+    theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5), text = element_text(size = 14, family = 'Optima')) + 
+    scale_y_continuous(n.breaks = 11, labels = scales::label_number(accuracy = .001)) + scale_x_date(date_labels = '%B %d', date_breaks = '2 days')
+}
+
+standings_race(teams = all_abbs, window = interval('2023-07-14', today()))
+
 
 
 
