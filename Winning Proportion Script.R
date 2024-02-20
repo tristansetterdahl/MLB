@@ -292,10 +292,10 @@ record_data <- function(){
   return <- all_records_every_game
 }
 
-record_data()
+#record_data()
 
 
-records_vec <- lapply(clean_schedules, record_select)
+#records_vec <- lapply(clean_schedules, record_select)
 
 record_select <- function(sched){
   records <- sched %>% select(c('TEAM', 'DATE', 'PCT'))
@@ -317,13 +317,75 @@ standings_race <- function(teams, window){
   
   ggplot(relevant_teams, aes(x = DATE, y = PCT)) + geom_line(aes(group = TEAM, color = TEAM)) + scale_color_mlb(type = 'primary') + 
     geom_mlb_logos(dat = relevant_teams, mapping = aes(team_abbr = TEAM, width = .0175)) + theme_minimal() + theme(plot.title = element_text(face = 'bold')) +
-    labs(y = 'Winning Percentage', x = 'Date', title = paste0('MLB', ' Standings') , subtitle = paste0('Since All-Star Break')) + 
+    labs(y = 'Winning Percentage', x = 'Date', title = paste0(div_title, ' Standings') , subtitle = paste0('Since All-Star Break')) + 
     theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5), text = element_text(size = 14, family = 'Optima')) + 
     scale_y_continuous(n.breaks = 11, labels = scales::label_number(accuracy = .001)) + scale_x_date(date_labels = '%B %d', date_breaks = '2 days')
 }
 
-standings_race(teams = all_abbs, window = interval('2023-07-14', today()))
+standings_race(teams = c('CHC', 'ARI'), window = interval('2023-09-01', today()))
+
+
+nl_abbs
+
+dat[dat$Team %in% nl_abbs,]
+
+div_dat <- dat %>% mutate(Division = case_when(Team %in% nl_central_abbs ~ 'NL Central',
+                                    Team %in% nl_east_abbs ~ 'NL East',
+                                    Team %in% nl_west_abbs ~ 'NL West',
+                                    Team %in% al_west_abbs ~ 'AL West',
+                                    Team %in% al_east_abbs ~ 'AL East',
+                                    Team %in% al_central_abbs ~ 'AL Central'))
+nl_dat <- div_dat[div_dat$Team %in% nl_abbs,]
+al_dat <- div_dat[div_dat$Team %in% al_abbs,]
+
+
+nl_dat %<>% arrange(desc(W))
+al_dat %<>% arrange(desc(W))
+
+
+nl_contenders <- nl_dat[1:9,]$Team
+nl_div_winners <- (nl_dat %>% group_by(Division) %>% slice(which.max(W / GP)))$Team
+nl_wildcards <- nl_dat[!(nl_dat$Team %in% nl_div_winners),]$Team %>% head(3)
+nl_chasers <- nl_dat[!(nl_dat$Team %in% nl_div_winners),][4:6,]$Team
+
+al_contenders <- al_dat[1:9,]$Team
+al_div_winners <- (al_dat %>% group_by(Division) %>% slice(which.max(W / GP)))$Team
+al_wildcards <- al_dat[!(al_dat$Team %in% al_div_winners),]$Team %>% head(3)
+al_chasers <- al_dat[!(nl_dat$Team %in% al_div_winners),][4:6,]$Team
+
+long_records %<>% mutate(FINISH = case_when(TEAM %in% nl_div_winners ~ 'Division Winner',
+                                            TEAM %in% al_div_winners ~ 'Division Winner',
+                                           TEAM %in% nl_wildcards ~ 'Wildcard',
+                                           TEAM %in% al_wildcards ~ 'Wildcard',
+                                           TRUE ~ 'Missed Playoff'))
 
 
 
+wildcard_race <- function(teams, window){
+  long_records <- record_data() #returns long data with a record for each team following every game
+  long_records %<>% mutate(FINISH = case_when(TEAM %in% nl_div_winners ~ 'Division Winner',
+                                              TEAM %in% al_div_winners ~ 'Division Winner',
+                                              TEAM %in% nl_wildcards ~ 'Wildcard',
+                                              TEAM %in% al_wildcards ~ 'Wildcard',
+                                              TRUE ~ 'Missed Playoff'))
+  relevant_teams <- long_records[long_records$TEAM %in% teams,]
+  relevant_teams <- relevant_teams[relevant_teams$DATE %within% window,]
+  #last_games_in_window <- relevant_teams %>% group_by(month = month(DATE), TEAM) %>% summarise(end_of_window = max(DATE))
+  #logo_games <- inner_join(relevant_teams, last_games_in_window, by = c('TEAM', 'DATE' = 'end_of_window'))
+  #logo_games <- relevant_teams %>% group_by(TEAM) %>% slice_sample(n = 6)
+  div_title <- paste0((substitute(teams) %>% deparse %>% toString() %>% str_split('_') %>% unlist())[1] %>% toupper(), ' ',
+                      (substitute(teams) %>% deparse %>% toString() %>% str_split('_') %>% unlist())[2] %>% str_to_title()
+  )
+  updated_since <- paste0(((today() - 1) %>% month(label = TRUE, abbr = FALSE)) %>% as.character(), ' ', ((today() -1) %>% day()) %>% as.character)
+  
+  ggplot(relevant_teams, aes(x = DATE, y = PCT)) + geom_line(aes(group = TEAM, color = TEAM, linetype = FINISH)) + 
+    scale_linetype_manual(values = c('Division Winner' = 'solid', 'Wildcard' = 'longdash', 'Missed Playoff' = 'dotted')) + scale_color_mlb(type = 'primary') + 
+    geom_mlb_logos(dat = relevant_teams, mapping = aes(team_abbr = TEAM, width = .0175)) + theme_minimal() + theme(plot.title = element_text(face = 'bold')) +
+    labs(y = 'Winning Percentage', x = 'Date', title = 'NL Wild Card Race' , subtitle = paste0('Since September 1')) + 
+    theme(plot.title = element_text(hjust = .5), plot.subtitle = element_text(hjust = .5), text = element_text(size = 14, family = 'Optima')) + 
+    scale_y_continuous(n.breaks = 11, labels = scales::label_number(accuracy = .001)) + scale_x_date(date_labels = '%b %d', date_breaks = '2 days')
+}
 
+wildcard_race(teams = nl_contenders[5:7], interval('2023-09-01', today()))
+
+long_records %>% group_by(FINISH) %>% summarise()
